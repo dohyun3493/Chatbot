@@ -1,0 +1,6 @@
+# 환경 변수 파일 -> OpenAi API key 들어가있음.
+.env
+
+# 파이썬 캐시
+__pycache__/
+*.pyc
