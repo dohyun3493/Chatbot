@@ -1,10 +1,28 @@
 from openai import OpenAI
 from config import Config
-from prompts import DB_SCHEMA, SQL_SYSTEM_MSG, GENERAL_SYSTEM_MSG, CLASSIFICATION_MSG
+from prompts import FUNCTION_SYSTEM_MSG, GENERAL_SYSTEM_MSG, NLG_SYSTEM_MSG, NLG_USER_TEMPLATE
+from functions_def import functions
+import function_impl
+import json
 
 client = OpenAI(api_key=Config.OPENAI_API_KEY)
 
-def ask_gpt(system_msg, user_msg, temp=0.7):
+# GPT 호출 함수 (FunctionCalling 포함)
+def ask_function_call(system_msg, user_msg, temp=0.3):
+    response = client.chat.completions.create(
+        model="gpt-3.5-turbo",
+        messages=[
+            {"role": "system", "content": system_msg},
+            {"role": "user", "content": user_msg}
+        ],
+        functions=functions,
+        function_call="auto",
+        temperature=temp,
+    )
+    return response.choices[0].message
+
+# 일반 질문 처리용 함수
+def ask_general_response(system_msg, user_msg, temp=0.7):
     response = client.chat.completions.create(
         model="gpt-3.5-turbo",
         messages=[
@@ -15,31 +33,32 @@ def ask_gpt(system_msg, user_msg, temp=0.7):
     )
     return response.choices[0].message.content.strip()
 
-def is_sql_question(message):
-    response = client.chat.completions.create(
-        model="gpt-3.5-turbo",
-        messages=[
-            {"role": "system", "content": CLASSIFICATION_MSG},
-            {"role": "user", "content": message}
-        ],
-        temperature=0
-    )
-    return response.choices[0].message.content.strip().lower() == "yes"
-
 def run_chat():
     while True:
         message = input("질문하세요 (종료: exit): ")
         if message.strip().lower() == "exit":
             break
 
-        if is_sql_question(message):
-            # SQL용 질문 처리
-            sql_user_msg = f"{DB_SCHEMA}\n\n사용자 질문: {message}"
-            sql_response = ask_gpt(SQL_SYSTEM_MSG, sql_user_msg, temp=0.3)
-            print("\n챗봇이 생성한 SQL 쿼리:")
-            print(sql_response)
+        result = ask_function_call(FUNCTION_SYSTEM_MSG, message)
+
+        if result.function_call:
+            fn = result.function_call.name
+            args = json.loads(result.function_call.arguments)
+            try:
+                func = getattr(function_impl, fn)
+                raw_data = func(**args) if args else func()
+
+                # 자연어 응답 생성
+                nlg_response = client.chat.completions.create(
+                    model="gpt-3.5-turbo",
+                    messages=[
+                        {"role": "system", "content": NLG_SYSTEM_MSG},
+                        {"role": "user", "content": NLG_USER_TEMPLATE.format(question=message, data=json.dumps(raw_data, ensure_ascii=False))}
+                    ]
+                )
+                print(nlg_response.choices[0].message.content.strip())
+            except AttributeError:
+                print(f"[오류] 정의되지 않은 함수: {fn}")
         else:
-            # 일반 질문 처리
-            general_response = ask_gpt(GENERAL_SYSTEM_MSG, message)
-            print("\n챗봇의 일반 응답:")
-            print(general_response)
+            print("(일반 채팅)")
+            print(ask_general_response(GENERAL_SYSTEM_MSG, message))
