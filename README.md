@@ -19,3 +19,6 @@ OpenAI GPT API를 사용하여 사용자 질문을 이해하고, 공장 DB 스�
 사용자 자연어 질문  
   ↓  
 LLM이 질문 분석 → 적절한 함수 호출(여기서 SQL도 정의하면 될 듯)
+
+openai function calling
+https://platform.openai.com/docs/guides/function-calling?api-mode=responses

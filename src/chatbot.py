@@ -33,6 +33,7 @@ def ask_general_response(system_msg, user_msg, temp=0.7):
     )
     return response.choices[0].message.content.strip()
 
+#유니티에 올릴 때는 while 무한루프 돌리면 안된다.. 
 def run_chat():
     while True:
         message = input("질문하세요 (종료: exit): ")
