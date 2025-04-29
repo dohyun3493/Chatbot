@@ -1,7 +1,7 @@
 from openai import OpenAI
 from config import Config
 from prompts import FUNCTION_SYSTEM_MSG, GENERAL_SYSTEM_MSG, NLG_SYSTEM_MSG, NLG_USER_TEMPLATE
-from functions_def import functions
+from functions_def import function_definitions as functions
 import function_impl
 import json
 
@@ -33,7 +33,7 @@ def ask_general_response(system_msg, user_msg, temp=0.7):
     )
     return response.choices[0].message.content.strip()
 
-#유니티에 올릴 때는 while 무한루프 돌리면 안된다.. 
+# 유니티에 올릴 때는 while 무한루프 돌리면 안된다.. 
 def run_chat():
     while True:
         message = input("질문하세요 (종료: exit): ")
@@ -59,7 +59,7 @@ def run_chat():
                 )
                 print(nlg_response.choices[0].message.content.strip())
             except AttributeError:
-                print(f"[오류] 정의되지 않은 함수: {fn}")
+                print(f"정의되지 않은 함수: {fn}")
         else:
             print("(일반 채팅)")
             print(ask_general_response(GENERAL_SYSTEM_MSG, message))
