@@ -59,7 +59,7 @@ def get_production_summary(date: Optional[str] = None) -> dict:
         "time_details": time_details
     }
     
-# 3. 생산량 평균을 구하는 함수수
+# 3. 생산량 평균을 구하는 함수
 def get_average_daily_completed_quantity(start_date: Optional[str] = None, end_date: Optional[str] = None) -> dict:
     if df.empty:
         return {"error": "생산 데이터가 없습니다."}
