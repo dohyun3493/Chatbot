@@ -1,8 +1,8 @@
 from openai import OpenAI
-from config import Config
-from prompts import FUNCTION_SYSTEM_MSG, GENERAL_SYSTEM_MSG, NLG_SYSTEM_MSG, NLG_USER_TEMPLATE
-from functions_def import function_definitions as functions
-import function_impl
+from config.config import Config
+from functions.prompts import FUNCTION_SYSTEM_MSG, GENERAL_SYSTEM_MSG, NLG_SYSTEM_MSG, NLG_USER_TEMPLATE
+from functions.functions_def import function_definitions as functions
+from functions import function_impl
 import json
 
 client = OpenAI(api_key=Config.OPENAI_API_KEY)
