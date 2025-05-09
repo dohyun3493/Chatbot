@@ -22,3 +22,4 @@ LLM이 질문 분석 → 적절한 함수 호출(여기서 SQL도 정의하면 �
 
 openai function calling
 https://platform.openai.com/docs/guides/function-calling?api-mode=responses
+https://landing.sellease.io/post/function-call-enterprise-ai-agent-rag-limitations-overcome
