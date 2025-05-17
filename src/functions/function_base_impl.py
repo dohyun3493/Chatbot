@@ -1,107 +1,118 @@
+import matplotlib.pyplot as plt
+import io
+import base64
+import pandas as pd
 import mysql.connector
-from datetime import datetime
-from typing import Optional, List
-from db.sql_connection import get_connection
+from config.config import Config
+import os
+import pymysql
+from pymysql.cursors import DictCursor
 
+def get_connection():
+    return mysql.connector.connect(
+        host=Config.DB_HOST,
+        user=Config.DB_USER,
+        password=Config.DB_PASSWORD,
+        database=Config.DB_NAME,
+        port=Config.DB_PORT
+    )
 
-# 1. 생산량 조회 함수
-def get_production_summary(date: Optional[str] = None) -> dict:
+def generate_production_chart(start_date, end_date, save_path=None):
+    print("check1")
+    
     conn = get_connection()
-    cursor = conn.cursor(dictionary=True)
-
-    today = date or datetime.now().strftime("%Y-%m-%d")
+    cursor = conn.cursor()
 
     query = """
-        SELECT timestamp, planned_qty, completed_qty, production_status
+        SELECT DATE(timestamp) AS production_date, completed_qty
         FROM production_data
-        WHERE DATE(timestamp) = %s
-        ORDER BY timestamp
+        WHERE timestamp >= %s AND timestamp <= %s
+          AND TIME(timestamp) = '18:00:00'
+        ORDER BY production_date;
     """
-    cursor.execute(query, (today,))
-    rows = cursor.fetchall()
-
-    cursor.close()
-    conn.close()
-
-    if not rows:
-        return {"error": f"{today} 기준 생산 데이터가 없습니다."}
-
-    total_planned = rows[0]['planned_qty']
-    latest_completed = rows[-1]['completed_qty']
-    status = rows[-1]['production_status']
-
-    time_details = [
-        {
-            "timestamp": row['timestamp'].strftime('%Y-%m-%d %H:%M:%S'),
-            "completed_quantity": int(row['completed_qty']),
-            "production_status": row['production_status']
-        }
-        for row in rows
-    ]
-
-    return {
-        "planned_quantity": int(total_planned),
-        "completed_quantity": int(latest_completed),
-        "production_status": status,
-        "time_details": time_details
-    }
-
-# 2. 평균 생산량 조회 함수
-def get_average_daily_completed_quantity(start_date: Optional[str] = None, end_date: Optional[str] = None) -> dict:
-    conn = get_connection()
-    cursor = conn.cursor(dictionary=True)
-
-    if not start_date:
-        start_date = datetime.now().replace(day=1).strftime("%Y-%m-%d")
-    if not end_date:
-        end_date = datetime.now().strftime("%Y-%m-%d")
 
     try:
-        start = datetime.strptime(start_date, "%Y-%m-%d")
-        end = datetime.strptime(end_date, "%Y-%m-%d")
-    except Exception:
-        return {"error": "날짜 형식이 잘못되었습니다. YYYY-MM-DD 형식으로 입력해주세요."}
+        cursor.execute(query, (start_date + ' 18:00:00', end_date + ' 18:00:00'))
+        data = cursor.fetchall()
+    finally:
+        cursor.close()
+        conn.close()
 
-    if start > end:
-        return {"error": "시작 날짜가 종료 날짜보다 늦습니다."}
+    if not data:
+        return "No data found for the specified period."
 
-    # 날짜별 마지막 '완료' 상태의 timestamp 추출
+    df = pd.DataFrame(data, columns=['production_date', 'completed_qty'])
+    df['completed_qty'] = df['completed_qty'].astype(float)
+
+    plt.figure(figsize=(10, 5))
+    plt.bar(df['production_date'], df['completed_qty'], color='skyblue')
+    plt.title("Daily Production Chart")
+    plt.xlabel("Date")
+    plt.ylabel("Production")
+    plt.grid(axis='y')
+    plt.xticks(rotation=45)
+
+    if save_path is None:
+        base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'data'))
+        os.makedirs(base_dir, exist_ok=True)
+        save_path = os.path.join(base_dir, "production_chart.png")
+
+    plt.savefig(save_path)
+    plt.close()
+    print(f"Chart saved at {save_path}")
+    return save_path
+
+def generate_monthly_average_production_chart(start_date, end_date, save_path=None):
+    print("check2")
+
+    conn = get_connection()
+    cursor = conn.cursor()
+
     query = """
-        SELECT DATE(timestamp) AS date_only, MAX(timestamp) AS latest_time
+        SELECT DATE_FORMAT(timestamp, '%Y-%m') AS `year_month`,
+               AVG(completed_qty) AS `avg_production`
         FROM production_data
         WHERE DATE(timestamp) BETWEEN %s AND %s
-          AND production_status = '완료'
-        GROUP BY DATE(timestamp)
+          AND TIME(timestamp) = '18:00:00'
+        GROUP BY DATE_FORMAT(timestamp, '%Y-%m')
+        ORDER BY DATE_FORMAT(timestamp, '%Y-%m');
     """
+
     cursor.execute(query, (start_date, end_date))
-    date_rows = cursor.fetchall()
-
-    if not date_rows:
-        return {"error": f"{start_date} ~ {end_date} 사이의 생산 데이터가 없습니다."}
-
-    # 각 날짜의 마지막 완료 수량 조회
-    daily_completed = []
-    for row in date_rows:
-        cursor.execute(
-            "SELECT completed_qty FROM production_data WHERE timestamp = %s",
-            (row['latest_time'],)
-        )
-        result = cursor.fetchone()
-        if result:
-            daily_completed.append(int(result['completed_qty']))
-
+    data = cursor.fetchall()
     cursor.close()
     conn.close()
 
-    if not daily_completed:
-        return {"error": "해당 기간에 완료된 작업이 없습니다."}
+    df = pd.DataFrame(data, columns=['year_month', 'avg_production'])
 
-    avg_completed = round(sum(daily_completed) / len(daily_completed), 2)
+    df['avg_production'] = df['avg_production'].astype(float)
 
-    return {
-        "start_date": start_date,
-        "end_date": end_date,
-        "days_with_data": len(daily_completed),
-        "average_daily_completed_quantity": avg_completed
-    }
+    if df.empty:
+        return "No data found for the specified period."
 
+    plt.figure(figsize=(12, 6))
+    plt.plot(df['year_month'], df['avg_production'], marker='o', linestyle='-', color='mediumseagreen')
+
+    for i, value in enumerate(df['avg_production']):
+        plt.text(i, value, f'{value:.1f}', ha='center', va='bottom', fontsize=9)
+
+    plt.title(f"Monthly Average Production from {start_date} to {end_date}")
+    plt.xlabel("Month")
+    plt.ylabel("Average Production")
+    plt.grid(True)
+    plt.xticks(rotation=45)
+
+    ymin = df['avg_production'].min() * 0.95
+    ymax = df['avg_production'].max() * 1.05
+    plt.ylim(ymin, ymax)
+
+    if save_path is None:
+        base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'data'))
+        os.makedirs(base_dir, exist_ok=True)
+        save_path = os.path.join(base_dir, "production_chart.png")
+
+    plt.savefig(save_path)
+    plt.close()
+    print(f"Chart saved at {save_path}")
+
+    return save_path

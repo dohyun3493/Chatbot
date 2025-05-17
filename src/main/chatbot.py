@@ -9,6 +9,7 @@ from functions import function_base_impl
 from db.sql_connection import get_connection
 from utils.json_encoder import JSONEncoder
 import json
+import os
 
 client = OpenAI(api_key=Config.OPENAI_API_KEY)
 
@@ -30,7 +31,7 @@ def generate_nlg_response(question, raw_data):
 def determine_sql_usage(user_msg):
     prompt = SQL_DETERMINATION_PROMPT
     response = client.chat.completions.create(
-        model="gpt-4-turbo",
+        model="gpt-3.5-turbo",
         messages=[
             {"role": "system", "content": prompt}, 
             {"role": "user", "content": user_msg}   
@@ -38,8 +39,7 @@ def determine_sql_usage(user_msg):
         temperature=0.0,
     )
     result = response.choices[0].message.content.strip()
-    print(f"모델 응답: {result}")  # 실제 모델 응답 확인용
-    # 예상 값인 'true' 또는 'false'로 변환
+    
     return result.lower()
 
 
@@ -52,6 +52,7 @@ def generate_sql_query(user_msg):
         temperature=0.2,
     )
     return response.choices[0].message.content.strip()
+
 
 # SQL 실행 함수
 def execute_sql_query(query):
@@ -98,7 +99,6 @@ def ask_function_call(system_msg, user_msg, temp=0.3):
     )
     return response.choices[0].message
 
-# 일반 질문 처리용 함수
 def ask_general_response(system_msg, user_msg, temp=0.7):
     response = client.chat.completions.create(
         model="gpt-3.5-turbo",
@@ -110,13 +110,11 @@ def ask_general_response(system_msg, user_msg, temp=0.7):
     )
     return response.choices[0].message.content.strip()
 
-# 사용자 메시지 처리 함수
 def process_user_message(message):
-    # SQL 사용 여부 확인
     sql_usage = determine_sql_usage(message)
-    print(f"SQL 사용 여부 판단 결과: {sql_usage}") 
+    print(f"SQL 사용 여부 판단 결과: {sql_usage}")
 
-    # SQL 사용 여부 확인이 'true'일 때만 SQL 응답 처리
+    # SQL 사용 여부가 true인 경우 SQL 처리
     if sql_usage == "true":
         try:
             sql_response = generate_sql_response(message)
@@ -126,7 +124,7 @@ def process_user_message(message):
             print(f"SQL 처리 중 오류 발생: {e}")
             return
 
-    # Function Call 여부 확인
+    # Function Call 처리
     try:
         result = ask_function_call(FUNCTION_SYSTEM_MSG, message)
         if result and result.function_call:
@@ -135,14 +133,18 @@ def process_user_message(message):
             try:
                 func = getattr(function_base_impl, fn)
                 raw_data = func(**args) if args else func()
-                print(f"(Function 호출 응답)\n{generate_nlg_response(message, raw_data)}")
+
+                # 이미지 저장 파일 경로인지 체크
+                if isinstance(raw_data, str) and os.path.isfile(raw_data):
+                    print(f"{raw_data}")
+                else:
+                    print(f"(Function 호출 응답)\n{generate_nlg_response(message, raw_data)}")
+
             except AttributeError:
                 print(f"정의되지 않은 함수: {fn}")
             except Exception as e:
                 print(f"Function 호출 중 오류 발생: {e}")
-        else:
-            print("(일반 채팅)")
-            print(ask_general_response(GENERAL_SYSTEM_MSG, message))
+
     except Exception as e:
         print(f"Function 처리 중 오류 발생: {e}")
 
@@ -153,3 +155,4 @@ def run_chat():
         if message.strip().lower() == "exit":
             break
         process_user_message(message)
+        

@@ -10,12 +10,14 @@ DB_SCHEMA = """
 - machine_id (VARCHAR): 기계 ID (도메인: MCH001, MCH002, MCH003, MCH004)
 - planned_qty (INT): 계획된 생산 수량
 - completed_qty (INT): 누적 완료된 생산 수량 (이전 값 포함)
-- production_status (VARCHAR): 생산 상태 (도메인: 진행 중, 완료)
+- production_status (VARCHAR): 생산 상태 (도메인: 진행 중, 완료, 초과 생산, 생산 미달)
 """
 
 SQL_DETERMINATION_PROMPT = """
-다음 문장이 SQL 쿼리가 필요한지 여부를 'true' 또는 'false'로 답하시오.:
+다음 문장이 SQL 쿼리가 필요한지 여부를 'true' 또는 'false'로 답하시오.
+Function Calling 으로 처리할 경우 false로 답하시오.:
 
+- 반드시 응답은 **영어로** 'true' 또는 'false'로만 답합니다. 다른 단어를 포함하지 않습니다.
 - "그래프", "차트", "분석", "시각화"라는 단어가 포함된 경우는 무조건 Function Calling으로 처리합니다.
 - "시간대별", "일별", "월별", "연도별" 등 특정 기간 또는 시간 단위별 데이터를 요청하는 경우는 SQL로 처리합니다.
 - 생산량, 기계 번호, 생산 상태 등 공장 데이터를 직접 조회하거나 특정 값을 가져오는 경우는 SQL 쿼리가 필요합니다.
@@ -36,46 +38,52 @@ SQL_DETERMINATION_PROMPT = """
 문장: "{user_msg}"
 """
 
-# SQL 생성하는 프롬프트
 SQL_PROMPT_TEMPLATE = f"""
-다음 질문을 SQL로 변환하세요.
-SQL만 생성하고 일반 답변은 절대 하지마시오.
-코드 블록 없이 SQL만 생성하시오.
-SQL은 복잡하지 않고 간단하게 작성하십시오.
+다음 질문을 SQL로 변환하세요.  
+SQL만 작성하고, 일반 답변은 하지 마십시오.  
+코드 블록 없이 순수 SQL만 작성하세요.  
 
-중요:
-- 코드 블록(````sql```)이나 따옴표("") 없이 순수 SQL만 작성하십시오.
-- 예시를 포함하여 코드 블록이 나오는 일이 없도록 주의하십시오.
-
-생산량 계산 규칙:
-1. completed_qty는 누적 생산량을 나타냅니다. 이는 9시부터 18시까지 하루에 생산된 양이 누적된다는 의미입니다.
-2. 당일 생산량은 당일 18시에 누적된 생산량으로 간주합니다.
-3. 특정 날짜의 생산량을 구할 때는 해당 날짜와 18시 조건을 모두 만족하는 값을 사용합니다.
-4. 날짜 범위로 평균 생산량을 구할 때도 각 날짜의 18시 누적량만을 기준으로 계산합니다.
-5. 날짜 형식은 'YYYY-MM-DD'로, 시간 형식은 'HH:MM:SS'로 작성합니다.
-6. 기간이 정해지고 "생산량 전부"라는 표현이 있을 때는 해당 범위의 모든 18시 데이터를 리스트로 보여줍니다.
-7. 전부라는 표현이 있을 때는 범위의 모든 데이터를 리스트로 보여줍니다.
+조건:
+- `completed_qty`는 **오전 9시부터 오후 6시까지 누적된 생산량**입니다.  
+- **실제 하루 생산량은 `18:00:00` 시점의 `completed_qty`**로 간주합니다.
+- **시간 조건이 명시되지 않은 경우, 반드시 `AND TIME(timestamp) = '18:00:00'` 조건을 명시적으로 SQL에 포함해야 합니다.**
+- **월별 요청 시**, 해당 월의 모든 날짜에 대해 `18:00:00` 누적 생산량만 조회합니다.
+- 시간 조건이 명시된 경우 해당 시간의 데이터를 조회하며, "시간대별" 요청은 하루 내 모든 시간대 데이터를 조회합니다.
+- 월, 분기 단위 계산 시 종료일은 항상 **해당 기간의 다음 달 1일 18시**를 사용하여 `timestamp <` 방식으로 처리합니다.
+- "알려줘", "보여줘", "알려줄래", "알려줘봐" 등은 모두 동일하게 취급하며, 리스트 형태로 날짜별 18시 생산량을 보여주는 쿼리를 작성합니다.
+- 사용자 질문이 ‘24년 1월 ~ 12월 생산량 알려줘’처럼 연속된 월 전체 기간인 경우 SQL 쿼리로 생성되도록 유도하세요:
 
 예시:
-- 질문: "25년 1월 1일 생산량 알려줘"
-  SQL: SELECT completed_qty FROM production_data WHERE timestamp = '2025-01-01 18:00:00';
+- 질문: "24년 1월 1일 생산량 알려줘"  
+  SQL:  
+  SELECT completed_qty FROM production_data  
+  WHERE timestamp = '2024-01-01 18:00:00';
 
-- 질문: "25년 1월 ~ 3월 생산량 평균 알려줘"
-  SQL: SELECT AVG(completed_qty) AS average_production FROM production_data 
-        WHERE timestamp >= '2025-01-01 18:00:00' 
-          AND timestamp < '2025-04-01 18:00:00' 
-          AND TIME(timestamp) = '18:00:00';
+- 질문: "24년 1월 ~ 3월 평균 생산량 알려줘"  
+  SQL:  
+  SELECT AVG(completed_qty) FROM production_data  
+  WHERE timestamp >= '2024-01-01 18:00:00'  
+    AND timestamp < '2024-04-01 18:00:00'  
+    AND TIME(timestamp) = '18:00:00';
 
-- 질문: "25년 1월 ~ 3월 생산량 전부 보여줘"
-  SQL: SELECT DATE(timestamp) AS production_date, completed_qty 
-        FROM production_data 
-        WHERE timestamp >= '2025-01-01 18:00:00' 
-          AND timestamp < '2025-04-01 18:00:00' 
-          AND TIME(timestamp) = '18:00:00';
-          
+- 질문: "24년 1월 생산량 보여줘"  
+  SQL:  
+  SELECT DATE(timestamp), completed_qty FROM production_data  
+  WHERE timestamp >= '2024-01-01 18:00:00'  
+    AND timestamp < '2024-02-01 18:00:00'  
+    AND TIME(timestamp) = '18:00:00'  
+  ORDER BY timestamp;
 
-테이블 정보: {DB_SCHEMA}
-질문: {{user_msg}}
+- 질문: "24년 각 달의 생산량 알려줘"
+  SQL:
+  SELECT DATE(timestamp), completed_qty  
+  FROM production_data  
+  WHERE timestamp >= '2024-01-01 18:00:00' AND timestamp < '2025-01-01 18:00:00'  
+    AND TIME(timestamp) = '18:00:00'  
+  ORDER BY timestamp;
+
+테이블 정보: {DB_SCHEMA}  
+질문: {{user_msg}}  
 간단하고 효율적인 SQL:
 """
 
@@ -94,9 +102,9 @@ FUNCTION_SYSTEM_MSG = """
 """
 
 NLG_SYSTEM_MSG = """
-다음 데이터를 보고 자연스럽고 친절한 문장으로 요약해줘.
+데이터를 모두 빠짐없이 나열하여 출력하십시오. 결과가 여러 개일 경우 전부 표기하고, 요약하지 마십시오.
 - 데이터가 나오는데 요약해줘 라는 말이 없으면 요약하지 말고 전부 보여줘.
-- 예시로 25년 1월 전체 생산량 알려줘 라고 하면 30일의 데이터를 전부 보여줘야 돼.
+- 예시로 24년 1월 전체 생산량 알려줘 라고 하면 30일의 데이터를 전부 보여줘야 돼.
 - 데이터가 많을 경우에는 10개 단위로 줄을 바꾸어 보기 좋게 정렬해줘.
 - 출력 예시:
   - 25년 1월에 생산된 제품의 양은 다음과 같습니다:
