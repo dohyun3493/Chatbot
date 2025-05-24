@@ -4,8 +4,10 @@ from functions.prompts import (
     SQL_PROMPT_TEMPLATE, FUNCTION_SYSTEM_MSG, 
     NLG_SYSTEM_MSG, NLG_USER_TEMPLATE, SQL_DETERMINATION_PROMPT,  GENERAL_SYSTEM_MSG
 )
-from functions.functions_base_def import function_definitions as functions
+from functions.functions_base_def import function_definitions as functions_base
 from functions import function_base_impl
+from functions.function_amr_def import function_definitions as functions_amr
+from functions import function_amr_impl
 from db.sql_connection import get_connection
 from utils.json_encoder import JSONEncoder
 import json
@@ -13,6 +15,8 @@ import os
 import datetime
 
 client = OpenAI(api_key=Config.OPENAI_API_KEY)
+
+functions = functions_base + functions_amr
 
 HISTORY_FILE = os.path.join(os.path.dirname(__file__), "..", "data", "chat_history.json")
 HISTORY_FILE = os.path.normpath(HISTORY_FILE)
@@ -108,7 +112,7 @@ def generate_sql_response(user_msg, history=None):
     result = execute_sql_query_multi(sql_query)
     
     # db에서 데이터를 잘 가져오는지 확인하는 debugging 용 코드드
-    # print("🔍 [DEBUG] Raw DB Result:", result)
+    # print(" [DEBUG] Raw DB Result:", result)
 
     if isinstance(result, str) and "데이터베이스 오류" in result:
         return result
@@ -190,7 +194,11 @@ def process_user_message(message):
             fn = result.function_call.name
             args = json.loads(result.function_call.arguments)
             try:
-                func = getattr(function_base_impl, fn)
+                if hasattr(function_base_impl, fn):
+                    func = getattr(function_base_impl, fn)
+                elif hasattr(function_amr_impl, fn):
+                    func = getattr(function_amr_impl, fn)
+                    
                 raw_data = func(**args) if args else func()
 
                 if isinstance(raw_data, str) and os.path.isfile(raw_data):
