@@ -1,8 +1,8 @@
 from openai import OpenAI
 from config.config import Config
 from functions.prompts import (
-    SQL_PROMPT_TEMPLATE, FUNCTION_SYSTEM_MSG,
-    NLG_SYSTEM_MSG, NLG_USER_TEMPLATE, SQL_DETERMINATION_PROMPT
+    SQL_PROMPT_TEMPLATE, FUNCTION_SYSTEM_MSG, 
+    NLG_SYSTEM_MSG, NLG_USER_TEMPLATE, SQL_DETERMINATION_PROMPT,  GENERAL_SYSTEM_MSG
 )
 from functions.functions_base_def import function_definitions as functions
 from functions import function_base_impl
@@ -56,12 +56,17 @@ def generate_nlg_response(question, raw_data, history=None):
     )})
 
     nlg_response = client.chat.completions.create(
-        model="gpt-3.5-turbo",
+        model="gpt-4.1",
         messages=messages
     )
     return nlg_response.choices[0].message.content.strip()
 
 def determine_sql_usage(user_msg, history=None):
+    lowered = user_msg.lower()
+
+    if "그래프로" in lowered:
+        return "false"
+    
     messages = []
     if history:
         messages.extend(history[-MAX_HISTORY:])
@@ -69,7 +74,7 @@ def determine_sql_usage(user_msg, history=None):
     messages.append({"role": "user", "content": user_msg})
 
     response = client.chat.completions.create(
-        model="gpt-3.5-turbo",
+        model="gpt-4.1",
         messages=messages,
         temperature=0.0,
     )
@@ -89,6 +94,8 @@ def generate_sql_query(user_msg, history=None):
         temperature=0.2,
     )
     sql_query = response.choices[0].message.content.strip()
+    
+    print("만들어진 SQL \n", sql_query)
     return sql_query
 
 def generate_sql_response(user_msg, history=None):
@@ -99,6 +106,9 @@ def generate_sql_response(user_msg, history=None):
             return "SQL이 잘못됐습니다."
 
     result = execute_sql_query_multi(sql_query)
+    
+    # db에서 데이터를 잘 가져오는지 확인하는 debugging 용 코드드
+    # print("🔍 [DEBUG] Raw DB Result:", result)
 
     if isinstance(result, str) and "데이터베이스 오류" in result:
         return result
@@ -134,13 +144,28 @@ def ask_function_call(system_msg, user_msg, history=None, temp=0.3):
     messages.append({"role": "user", "content": user_msg})
 
     response = client.chat.completions.create(
-        model="gpt-3.5-turbo",
+        model="gpt-4.1",
         messages=messages,
         functions=functions,
         function_call="auto",
         temperature=temp,
     )
     return response.choices[0].message
+
+def generate_general_response(message, history=None):
+    messages = []
+    if history:
+        messages.extend(history[-MAX_HISTORY:])
+    messages.append({"role": "system", "content": GENERAL_SYSTEM_MSG})
+    messages.append({"role": "user", "content": message})
+
+    response = client.chat.completions.create(
+        model="gpt-3.5-turbo",
+        messages=messages
+    )
+    result = response.choices[0].message.content.strip()
+    return result
+
 
 def process_user_message(message):
     history = load_history()
@@ -182,6 +207,11 @@ def process_user_message(message):
                 print(f"정의되지 않은 함수: {fn}")
             except Exception as e:
                 print(f"Function 호출 중 오류 발생: {e}")
+        else:
+            general_resp = generate_general_response(message, history)
+            print(general_resp)
+            history.append({"role": "assistant", "content": general_resp})
+            save_history(history)
 
     except Exception as e:
         print(f"Function 처리 중 오류 발생: {e}")
