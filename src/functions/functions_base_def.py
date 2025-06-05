@@ -91,4 +91,22 @@ function_definitions = [
             "required": ["start_date", "end_date"],
         },
     },
+    {
+        "name": "generate_selected_months_production_comparison_chart",
+        "description": (
+            "선택한 연월 목록에 대해 각 월의 총 생산량을 막대그래프로 비교 시각화합니다. "
+            "예: '1월, 5월, 9월 생산량 비교해줘', '2023-01과 2024-01 생산량 비교', '특정 월만 골라서 비교하고 싶어' 요청에 적합합니다."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "month_list": {
+                    "type": "array",
+                    "description": "비교할 연월 리스트 (예: ['2025-01', '2025-05', '2025-09'])",
+                    "items": {"type": "string"},
+                }
+            },
+            "required": ["month_list"]
+        }
+    }
 ]

@@ -9,5 +9,5 @@ from alerts import amr_alert
 #Chatbot 실행 
 if __name__ == "__main__":
     alert_thread = threading.Thread(target=amr_alert, daemon=True)
-    alert_thread.start()
+    #alert_thread.start()
     run_chat()

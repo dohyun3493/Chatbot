@@ -293,10 +293,6 @@ def generate_monthly_total_production_chart(start_date, end_date, save_path=None
     if not data:
         return "No data found for the specified period."
 
-    import pandas as pd
-    import matplotlib.pyplot as plt
-    import os
-
     df = pd.DataFrame(data, columns=['year_month', 'total_production'])
     df['total_production'] = df['total_production'].astype(float)
 
@@ -313,6 +309,76 @@ def generate_monthly_total_production_chart(start_date, end_date, save_path=None
         os.makedirs(base_dir, exist_ok=True)
         save_path = os.path.join(base_dir, "production_chart.png")
 
+    plt.savefig(save_path)
+    plt.close()
+    print(f"Chart saved at {save_path}")
+
+    return save_path
+
+def generate_selected_months_production_comparison_chart(month_list, save_path=None):
+    print("check_selected_months_comparison")
+
+    if not month_list:
+        return "Month list is empty."
+
+    conn = get_connection()
+    cursor = conn.cursor()
+
+    placeholders = ', '.join(['%s'] * len(month_list))
+    query = f"""
+        SELECT DATE_FORMAT(timestamp, '%Y-%m') AS `month_label`,
+               SUM(completed_qty) AS total_production
+        FROM production_data
+        WHERE DATE_FORMAT(timestamp, '%Y-%m') IN ({placeholders})
+          AND TIME(timestamp) = '18:00:00'
+        GROUP BY `month_label`
+        ORDER BY `month_label`;
+    """
+
+    try:
+        cursor.execute(query, month_list)
+        data = cursor.fetchall()
+    finally:
+        cursor.close()
+        conn.close()
+
+    if not data:
+        return "No data found for the specified months."
+
+    df = pd.DataFrame(data, columns=['month_label', 'total_production'])
+    df['total_production'] = df['total_production'].astype(float)
+
+    plt.style.use('seaborn-v0_8-muted')
+    if platform.system() == 'Windows':
+        plt.rc('font', family='Malgun Gothic')
+
+    colors = plt.cm.Set2.colors[:len(df)] 
+    plt.figure(figsize=(10, 6))
+    bars = plt.bar(df['month_label'], df['total_production'], color=colors, width=0.5)
+
+    for bar in bars:
+        yval = bar.get_height()
+        plt.text(bar.get_x() + bar.get_width()/2, yval, f'{yval:.0f}', 
+                 ha='center', va='bottom', fontsize=11, fontweight='bold')
+
+    ymin = df['total_production'].min() * 0.95
+    ymax = df['total_production'].max() * 1.05
+    plt.ylim(ymin, ymax)
+
+    title_range = ", ".join(month_list)
+    plt.title(f"Total Production Comparison: {title_range}", fontsize=14, fontweight='bold')
+    plt.xlabel("Month", fontsize=12)
+    plt.ylabel("Total Production", fontsize=12)
+    plt.grid(axis='y', linestyle='--', alpha=0.6)
+    plt.xticks(fontsize=11)
+    plt.yticks(fontsize=11)
+
+    if save_path is None:
+        base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'data'))
+        os.makedirs(base_dir, exist_ok=True)
+        save_path = os.path.join(base_dir, f"production_chart.png")
+
+    plt.tight_layout()
     plt.savefig(save_path)
     plt.close()
     print(f"Chart saved at {save_path}")

@@ -20,7 +20,7 @@ functions = functions_base + functions_amr
 
 HISTORY_FILE = os.path.join(os.path.dirname(__file__), "..", "data", "chat_history.json")
 HISTORY_FILE = os.path.normpath(HISTORY_FILE)
-MAX_HISTORY = 50
+MAX_HISTORY = 10
 
 def load_history():
     if os.path.exists(HISTORY_FILE):
@@ -68,9 +68,24 @@ def generate_nlg_response(question, raw_data, history=None):
 def determine_sql_usage(user_msg, history=None):
     lowered = user_msg.lower()
 
-    if "그래프로" in lowered:
+    sql_keywords = [
+        '기계 사용 정보', '기계 사용 내역', '사용된 기계', 
+        '생산량 조회', '생산량 알려줘' '환경 정보', '배터리 용량' , '데이터 조회'
+    ]
+
+    vis_keywords = [
+        '그래프', '차트', '시각화', '이미지', '플롯', '트렌드', '막대', '라인', '파이'
+    ]
+
+    # 시각화 관련 단어 있으면 무조건 false
+    if any(keyword in lowered for keyword in vis_keywords):
         return "false"
     
+    # SQL 관련 키워드 있으면 무조건 true
+    if any(keyword in lowered for keyword in sql_keywords):
+        return "true"
+
+    # 위 조건 없으면 GPT로 판단
     messages = []
     if history:
         messages.extend(history[-MAX_HISTORY:])
@@ -84,6 +99,7 @@ def determine_sql_usage(user_msg, history=None):
     )
     result = response.choices[0].message.content.strip().lower()
     return result
+
 
 def generate_sql_query(user_msg, history=None):
     messages = []
@@ -129,6 +145,7 @@ def tuplelist_to_strlist(result):
     strlist = []
     for row in result:
         values = [
+            val.strftime('%Y-%m-%d %H:%M:%S') if isinstance(val, datetime.datetime) else
             val.strftime('%Y-%m-%d') if isinstance(val, datetime.date) else
             val.strftime('%H:%M:%S') if isinstance(val, datetime.time) else
             str(val)
@@ -139,6 +156,7 @@ def tuplelist_to_strlist(result):
         else:
             strlist.append(", ".join(values))
     return strlist
+
 
 def ask_function_call(system_msg, user_msg, history=None, temp=0.3):
     messages = []
